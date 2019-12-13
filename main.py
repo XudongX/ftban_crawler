@@ -5,6 +5,7 @@ import time
 import csv
 
 from selenium import webdriver
+from selenium.webdriver import DesiredCapabilities
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
@@ -14,9 +15,9 @@ from datetime import datetime
 GLOBAL_COUNTER = 1
 
 
-def data2csv(list_2d, csvname):
-    with open(csvname, 'a', encoding='utf8') as csvfile:
-        writer = csv.writer(csvfile)
+def data2csv(list_2d, csv_name):
+    with open(csv_name, 'a', encoding='utf8') as csv_file:
+        writer = csv.writer(csv_file)
         for item in list_2d:
             writer.writerow(item)
 
@@ -27,6 +28,8 @@ def wait_load_finish(driver):
             EC.presence_of_element_located((By.CLASS_NAME, "xl-nextPage"))
         )
     except:
+        print(">>>> PAGE SOURCE:")
+        print(driver.page_source)
         print('!! >>>> >>>> first 60s wait failed, try another 60s')
         WebDriverWait(driver, 60).until(
             EC.presence_of_element_located((By.CLASS_NAME, "xl-nextPage"))
@@ -90,7 +93,14 @@ def main(reverse=False, start_at_pagenum=None):
     # chrome_options.add_argument("--disable-application-cache")
     # chrome_options.add_argument('blink-settings=imagesEnabled=false')
     # chrome_options.add_argument("--incognito")
-    # with webdriver.Chrome(options=chrome_options, executable_path='./chromedriver') as driver:
+    # chrome_options.add_argument('--ignore-certificate-errors')
+    # chrome_options.add_argument('--allow-running-insecure-content')
+    # capabilities = DesiredCapabilities.CHROME.copy()
+    # capabilities["acceptSslCerts"] = True
+    # capabilities['acceptInsecureCerts'] = True
+    # capabilities["ignore-certificate-errors"] = True
+    # with webdriver.Chrome(options=chrome_options,
+    #                       executable_path='./chromedriver') as driver:
 
     # with webdriver.Firefox(firefox_profile=profile, executable_path='./geckodriver') as driver:
     with webdriver.Firefox(firefox_profile=profile, options=firefox_options) as driver:
@@ -126,7 +136,9 @@ def main(reverse=False, start_at_pagenum=None):
         with sqlite3.connect('./data.db') as conn:
             db_cursor = conn.cursor()
             print(">>>> db_cursor created, begin LOOP")
-            page_count = int(page_num)
+            page_count = 1
+            if start_at_pagenum is not None:
+                page_count = int(start_at_pagenum)
             while True:
                 parse_to_db(driver, db_cursor)
                 conn.commit()
