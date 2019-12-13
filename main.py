@@ -39,7 +39,7 @@ def next_page(driver):
     wait_load_finish(driver)
 
 
-def parse_and_write(driver, num, db_cursor):
+def parse_to_db(driver, num, db_cursor):
     global GLOBAL_COUNTER
     gzlist = driver.find_elements_by_xpath("//ul[@id='gzlist']/li")
 
@@ -67,33 +67,37 @@ def parse_and_write(driver, num, db_cursor):
                           (list_row[0], list_row[1], list_row[2], list_row[3], list_row[4]))
 
 
-# TODO: 反向爬取
-profile = webdriver.FirefoxProfile()
-profile.set_preference("browser.cache.disk.enable", False)
-profile.set_preference("browser.cache.memory.enable", False)
-profile.set_preference("browser.cache.offline.enable", False)
-profile.set_preference("network.http.use-cache", False)
-driver = webdriver.Firefox(profile)
+def main():
+    # TODO: 反向爬取
+    profile = webdriver.FirefoxProfile()
+    profile.set_preference("browser.cache.disk.enable", False)
+    profile.set_preference("browser.cache.memory.enable", False)
+    profile.set_preference("browser.cache.offline.enable", False)
+    profile.set_preference("network.http.use-cache", False)
 
-# with webdriver.Firefox(firefox_profile=profile, executable_path='./geckodriver') as driver:
-with webdriver.Firefox(firefox_profile=profile) as driver:
-    driver.get("http://125.35.6.80:8181/ftban/fw.jsp")
+    options = webdriver.FirefoxOptions()
+    options.headless = True
 
-    wait_load_finish(driver)
+    # with webdriver.Firefox(firefox_profile=profile, executable_path='./geckodriver') as driver:
+    with webdriver.Firefox(firefox_profile=profile, options=options) as driver:
+        driver.get("http://125.35.6.80:8181/ftban/fw.jsp")
 
-    print(">>> >>> >>>")
-    print(datetime.now())
-    print(driver.title)
+        wait_load_finish(driver)
 
-    try:
-        conn = sqlite3.connect('./data.db')
-        db_cursor = conn.cursor()
-        for K in range(1000):
-            for i in range(1000):
-                parse_and_write(driver, K, db_cursor)
-                conn.commit()
-                time.sleep(2)
-                next_page(driver)
-                time.sleep(2)
-    finally:
-        conn.close()
+        print(">>> >>> >>>")
+        print(datetime.now())
+        print(driver.title)
+
+        with sqlite3.connect('./data.db') as conn:
+            db_cursor = conn.cursor()
+            for K in range(1000):
+                for i in range(1000):
+                    parse_to_db(driver, K, db_cursor)
+                    conn.commit()
+                    time.sleep(2)
+                    next_page(driver)
+                    time.sleep(2)
+
+
+if __name__ == '__main__':
+    main()
