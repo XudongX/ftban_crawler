@@ -67,7 +67,16 @@ def parse_and_write(driver, num, db_cursor):
                           (list_row[0], list_row[1], list_row[2], list_row[3], list_row[4]))
 
 
-with webdriver.Firefox() as driver:
+# TODO: 反向爬取
+profile = webdriver.FirefoxProfile()
+profile.set_preference("browser.cache.disk.enable", False)
+profile.set_preference("browser.cache.memory.enable", False)
+profile.set_preference("browser.cache.offline.enable", False)
+profile.set_preference("network.http.use-cache", False)
+driver = webdriver.Firefox(profile)
+
+# with webdriver.Firefox(firefox_profile=profile, executable_path='./geckodriver') as driver:
+with webdriver.Firefox(firefox_profile=profile) as driver:
     driver.get("http://125.35.6.80:8181/ftban/fw.jsp")
 
     wait_load_finish(driver)
