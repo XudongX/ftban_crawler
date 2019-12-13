@@ -11,7 +11,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from datetime import datetime
 
-GLOBAL_COUNTER = 0
+GLOBAL_COUNTER = 1
 
 
 def data2csv(list_2d, csvname):
