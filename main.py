@@ -72,6 +72,8 @@ def parse_to_db(driver, db_cursor):
 
 def main(reverse=False, start_at_pagenum=None):
     # TODO: 反向爬取
+
+    # use firefox
     profile = webdriver.FirefoxProfile()
     profile.set_preference("browser.cache.disk.enable", False)
     profile.set_preference("browser.cache.memory.enable", False)
@@ -80,6 +82,15 @@ def main(reverse=False, start_at_pagenum=None):
 
     firefox_options = webdriver.FirefoxOptions()
     firefox_options.headless = True
+
+    # use chrome
+    # chrome_options = webdriver.ChromeOptions()
+    # chrome_options.add_argument("--headless")
+    # chrome_options.add_argument('--disable-gpu')
+    # chrome_options.add_argument("--disable-application-cache")
+    # chrome_options.add_argument('blink-settings=imagesEnabled=false')
+    # chrome_options.add_argument("--incognito")
+    # with webdriver.Chrome(options=chrome_options, executable_path='./chromedriver') as driver:
 
     # with webdriver.Firefox(firefox_profile=profile, executable_path='./geckodriver') as driver:
     with webdriver.Firefox(firefox_profile=profile, options=firefox_options) as driver:
@@ -101,6 +112,8 @@ def main(reverse=False, start_at_pagenum=None):
         # jump to certain page number
         if start_at_pagenum is not None:
             page_num = str(start_at_pagenum)
+            global GLOBAL_COUNTER
+            GLOBAL_COUNTER = int(page_num)
             print(">>>> Try to jump page" + page_num)
             driver.find_element_by_id("xlJumpNum").send_keys(page_num)
             driver.find_element_by_class_name("xl-jumpButton").click()
@@ -113,7 +126,7 @@ def main(reverse=False, start_at_pagenum=None):
         with sqlite3.connect('./data.db') as conn:
             db_cursor = conn.cursor()
             print(">>>> db_cursor created, begin LOOP")
-            page_count = 1
+            page_count = int(page_num)
             while True:
                 parse_to_db(driver, db_cursor)
                 conn.commit()
