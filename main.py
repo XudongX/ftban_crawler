@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 import argparse
+import gc
+import os
 import sqlite3
 import time
 import csv
+import traceback
 
 from selenium import webdriver
 from selenium.webdriver import DesiredCapabilities
@@ -24,14 +27,14 @@ def data2csv(list_2d, csv_name):
 
 def wait_load_finish(driver):
     try:
-        WebDriverWait(driver, 60).until(
+        WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CLASS_NAME, "xl-nextPage"))
         )
     except:
         print(">>>> PAGE SOURCE:")
         print(driver.page_source)
-        print('!! >>>> >>>> first 60s wait failed, try another 60s')
-        WebDriverWait(driver, 60).until(
+        print('!! >>>> >>>> first 15s wait failed, try another 60s')
+        WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CLASS_NAME, "xl-nextPage"))
         )
 
@@ -74,8 +77,6 @@ def parse_to_db(driver, db_cursor):
 
 
 def main(reverse=False, start_at_pagenum=None):
-    # TODO: 反向爬取
-
     # use firefox
     profile = webdriver.FirefoxProfile()
     profile.set_preference("browser.cache.disk.enable", False)
@@ -151,9 +152,12 @@ def main(reverse=False, start_at_pagenum=None):
                 else:
                     prev_page(driver)
                 time.sleep(1)
+                raise ValueError()
+
 
 
 if __name__ == '__main__':
+    # parse command line arguments
     parser = argparse.ArgumentParser(description='ftban-crawler')
     parser.add_argument('-db', dest='database_path',
                         metavar='database path',
@@ -172,4 +176,15 @@ if __name__ == '__main__':
     print("reverse_parse: " + str(args.reverse_parse))
     print("page_num: " + str(args.page_num))
 
-    main(reverse=args.reverse_parse, start_at_pagenum=args.page_num)
+    # try to loop the main() in case of unknown exception
+    try:
+        main(reverse=args.reverse_parse, start_at_pagenum=args.page_num)
+    except Exception as e:
+        print(">>>> !!!! Exception!!!! EXCEPTION")
+        traceback.print_exc()
+        print("<<<< !!!! Exception!!!! EXCEPTION")
+        gc_num = gc.collect()
+        print(">>>> GC Number: "+str(gc_num))
+        print(">>>> try to begin at GLOBAL_COUNTER: " + str(GLOBAL_COUNTER - 1))
+        os.system("PYTHONIOENCODING=utf-8 python3 ./main.py -pn " + str(GLOBAL_COUNTER - 1))
+        print(">>>> after os.system, GLOBAL_COUNTER: " + str(GLOBAL_COUNTER))
