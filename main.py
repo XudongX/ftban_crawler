@@ -8,9 +8,7 @@ import csv
 import traceback
 
 from selenium import webdriver
-from selenium.webdriver import DesiredCapabilities
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from datetime import datetime
@@ -19,6 +17,7 @@ GLOBAL_COUNTER = 1
 
 
 def data2csv(list_2d, csv_name):
+    """convert a 2 dimension list to a csv file"""
     with open(csv_name, 'a', encoding='utf8') as csv_file:
         writer = csv.writer(csv_file)
         for item in list_2d:
@@ -26,6 +25,7 @@ def data2csv(list_2d, csv_name):
 
 
 def wait_load_finish(driver):
+    """wait for loading finished, it will try twice for 15s"""
     try:
         WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CLASS_NAME, "xl-nextPage"))
@@ -40,11 +40,13 @@ def wait_load_finish(driver):
 
 
 def next_page(driver):
+    """jump to next page"""
     driver.find_element_by_class_name('xl-nextPage').click()
     wait_load_finish(driver)
 
 
 def prev_page(driver):
+    """jump to previous page"""
     driver.find_element_by_class_name('xl-prevPage').click()
     wait_load_finish(driver)
 
@@ -77,6 +79,7 @@ def parse_to_db(driver, db_cursor):
 
 
 def main(reverse=False, start_at_pagenum=None):
+    """main function"""
     # use firefox
     profile = webdriver.FirefoxProfile()
     profile.set_preference("browser.cache.disk.enable", False)
@@ -87,26 +90,9 @@ def main(reverse=False, start_at_pagenum=None):
     firefox_options = webdriver.FirefoxOptions()
     firefox_options.headless = True
 
-    # use chrome
-    # chrome_options = webdriver.ChromeOptions()
-    # chrome_options.add_argument("--headless")
-    # chrome_options.add_argument('--disable-gpu')
-    # chrome_options.add_argument("--disable-application-cache")
-    # chrome_options.add_argument('blink-settings=imagesEnabled=false')
-    # chrome_options.add_argument("--incognito")
-    # chrome_options.add_argument('--ignore-certificate-errors')
-    # chrome_options.add_argument('--allow-running-insecure-content')
-    # capabilities = DesiredCapabilities.CHROME.copy()
-    # capabilities["acceptSslCerts"] = True
-    # capabilities['acceptInsecureCerts'] = True
-    # capabilities["ignore-certificate-errors"] = True
-    # with webdriver.Chrome(options=chrome_options,
-    #                       executable_path='./chromedriver') as driver:
-
-    # with webdriver.Firefox(firefox_profile=profile, executable_path='./geckodriver') as driver:
-    with webdriver.Firefox(firefox_profile=profile, options=firefox_options) as driver:
+    with webdriver.Firefox(firefox_profile=profile, options=firefox_options, executable_path='./geckodriver') as driver:
+    # with webdriver.Firefox(firefox_profile=profile, options=firefox_options) as driver:
         driver.get("http://125.35.6.80:8181/ftban/fw.jsp")
-
         wait_load_finish(driver)
 
         print(">>>> >>>> >>>>")
@@ -152,10 +138,8 @@ def main(reverse=False, start_at_pagenum=None):
                 else:
                     prev_page(driver)
                 time.sleep(1)
-                raise ValueError()
 
-
-
+# TODO logging,
 if __name__ == '__main__':
     # parse command line arguments
     parser = argparse.ArgumentParser(description='ftban-crawler')
@@ -184,7 +168,7 @@ if __name__ == '__main__':
         traceback.print_exc()
         print("<<<< !!!! Exception!!!! EXCEPTION")
         gc_num = gc.collect()
-        print(">>>> GC Number: "+str(gc_num))
+        print(">>>> GC Number: " + str(gc_num))
         print(">>>> try to begin at GLOBAL_COUNTER: " + str(GLOBAL_COUNTER - 1))
         os.system("PYTHONIOENCODING=utf-8 python3 ./main.py -pn " + str(GLOBAL_COUNTER - 1))
         print(">>>> after os.system, GLOBAL_COUNTER: " + str(GLOBAL_COUNTER))
