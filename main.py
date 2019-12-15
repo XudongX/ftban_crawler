@@ -29,7 +29,7 @@ fh.setFormatter(formatter)
 
 # 使用StreamHandler输出到标准输出
 sh = logging.StreamHandler()
-sh.setLevel(logging.DEBUG)
+sh.setLevel(logging.INFO)
 sh.setFormatter(formatter)
 
 # 添加两个Handler
@@ -89,7 +89,7 @@ def parse_to_db(driver, db_cursor):
         list_row.append(li_tag.find_element_by_tag_name('i').text)
         list_row.append(li_tag.find_element_by_tag_name('a').get_attribute("href"))
 
-        db_cursor.execute("INSERT INTO ftban(product_name, "
+        db_cursor.execute("INSERT OR IGNORE INTO ftban(product_name, "
                           "cert_id, "
                           "company_name, "
                           "month_date, "
@@ -113,8 +113,8 @@ def main(reverse=False, start_at_pagenum=None):
     firefox_options.add_argument("--private")  # try to disable cache
     firefox_options.headless = True
 
-    # with webdriver.Firefox(firefox_profile=profile, options=firefox_options, executable_path='./geckodriver') as driver:
-    with webdriver.Firefox(firefox_profile=profile, options=firefox_options) as driver:
+    with webdriver.Firefox(firefox_profile=profile, options=firefox_options, executable_path='./geckodriver') as driver:
+    # with webdriver.Firefox(firefox_profile=profile, options=firefox_options) as driver:
         driver.get("http://125.35.6.80:8181/ftban/fw.jsp")
         wait_load_finish(driver)
 
