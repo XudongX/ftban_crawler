@@ -21,7 +21,9 @@ formatter = logging.Formatter(
     datefmt='%Y-%m-%d %H:%M:%S')
 
 # 使用FileHandler输出到文件
-fh = logging.FileHandler(str(datetime.now().strftime('%Y-%m-%d_%H:%M:%S')) + '_ftban.log', mode='a')
+fh = logging.FileHandler(str(datetime.now().strftime('%Y-%m-%d_%H:%M:%S')) + '_ftban.log',
+                         mode='a',
+                         encoding='utf-8')
 fh.setLevel(logging.INFO)  # 输出到handler的level
 fh.setFormatter(formatter)
 
@@ -158,6 +160,7 @@ def main(db_path='./data.db', reverse=False, start_at_pagenum=None, limitation=1
     :param db_path:
     :param reverse:
     :param start_at_pagenum:
+    :param limitation:
     :return: last parsed page number
     """
 
@@ -170,7 +173,7 @@ def main(db_path='./data.db', reverse=False, start_at_pagenum=None, limitation=1
 
     firefox_options = webdriver.FirefoxOptions()
     firefox_options.add_argument("--private")  # try to disable browser cache
-    # firefox_options.headless = True
+    firefox_options.headless = True
 
     # with webdriver.Firefox(firefox_profile=profile, options=firefox_options, executable_path='./geckodriver') as driver:
     with webdriver.Firefox(firefox_profile=profile, options=firefox_options) as driver:
@@ -222,7 +225,7 @@ def main(db_path='./data.db', reverse=False, start_at_pagenum=None, limitation=1
                     next_page(driver)
                 else:
                     prev_page(driver)
-                time.sleep(1)
+                time.sleep(0.25)
 
         # end parsing
         current_pagenum = get_current_page(driver)
