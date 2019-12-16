@@ -21,7 +21,7 @@ formatter = logging.Formatter(
     datefmt='%Y-%m-%d %H:%M:%S')
 
 # 使用FileHandler输出到文件
-fh = logging.FileHandler(str(datetime.now().strftime('%Y-%m-%d_%H:%M:%S')) + '_ftban.log',
+fh = logging.FileHandler('main_ftban.log',
                          mode='a',
                          encoding='utf-8')
 fh.setLevel(logging.INFO)  # 输出到handler的level
