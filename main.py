@@ -63,8 +63,8 @@ def wait_load_finish(driver):
     except:
         logging.warning(">>>> First 15s wait failed, PAGE SOURCE:")
         logging.warning(driver.page_source)
-        logging.warning('!! >>>> >>>> first 15s wait failed, try another 60s')
-        WebDriverWait(driver, 15).until(
+        logging.warning('!! >>>> >>>> first 15s wait failed, try 30s')
+        WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.CLASS_NAME, "xl-nextPage"))
         )
 
@@ -122,11 +122,10 @@ def jump2pagenum(driver, to_pagenum) -> int:
     return current_page_number
 
 
-def parse_to_db(driver, db_cursor):
+def parse_and_return(driver):
     """
     parse current page, store table elements into database
     :param driver:
-    :param db_cursor:
     :return:
     """
     gzlist = driver.find_elements_by_xpath("//ul[@id='gzlist']/li")
@@ -135,6 +134,7 @@ def parse_to_db(driver, db_cursor):
     logging.info('>>>> Current page number: ' + str(get_current_page(driver)))
     logging.info(name)  # log the first row's title.
 
+    row_and_column = list()
     for li_tag in gzlist:
         list_row = list()
         list_row.append(li_tag.find_element_by_tag_name('dl').text)
@@ -142,15 +142,8 @@ def parse_to_db(driver, db_cursor):
         list_row.append(li_tag.find_element_by_tag_name('p').text)
         list_row.append(li_tag.find_element_by_tag_name('i').text)
         list_row.append(li_tag.find_element_by_tag_name('a').get_attribute("href"))
-
-        db_cursor.execute("INSERT OR IGNORE INTO ftban(product_name, "
-                          "cert_id, "
-                          "company_name, "
-                          "month_date, "
-                          "detail_url) "
-                          "VALUES "
-                          "(?, ?, ?, ?, ?)",
-                          (list_row[0], list_row[1], list_row[2], list_row[3], list_row[4]))
+        row_and_column.append(list_row)
+    return row_and_column
 
 
 def main(db_path='./data.db', reverse=False, start_at_pagenum=None, limitation=1000) -> int:
@@ -204,28 +197,34 @@ def main(db_path='./data.db', reverse=False, start_at_pagenum=None, limitation=1
             jump2pagenum(driver, start_at_pagenum)
 
         # start parsing
-        with sqlite3.connect('./data.db') as conn:
-            db_cursor = conn.cursor()
-            logging.info(">>>> db_cursor created, begin LOOP")
-
-            parsed_counter = 0  # record the number of parsed pages
-            while True:
-                parse_to_db(driver, db_cursor)
+        parsed_counter = 0  # record the number of parsed pages
+        logging.info(">>>> Begin LOOP")
+        while True:
+            row_and_col = parse_and_return(driver)
+            with sqlite3.connect('./data.db') as conn:
+                db_cursor = conn.cursor()
+                for row in row_and_col:
+                    db_cursor.execute("INSERT OR IGNORE INTO ftban(product_name, "
+                                      "cert_id, "
+                                      "company_name, "
+                                      "month_date, "
+                                      "detail_url) "
+                                      "VALUES "
+                                      "(?, ?, ?, ?, ?)",
+                                      (row[0], row[1], row[2], row[3], row[4]))
                 conn.commit()
                 logging.info(">>>> Page-" + str(get_current_page(driver)) + " parsed and committed")
-
-                if parsed_counter >= limitation:  # in case memory leaks
-                    logging.warning(">>>> !!!! Reached the parsed limitation %d, page number at %d",
-                                    limitation,
-                                    get_current_page(driver))
-                    break
                 parsed_counter += 1
-
-                if not reverse:
-                    next_page(driver)
-                else:
-                    prev_page(driver)
-                time.sleep(0.25)
+            if parsed_counter >= limitation:  # in case memory leaks
+                logging.warning(">>>> !!!! Reached the parsed limitation %d, page number at %d",
+                                limitation,
+                                get_current_page(driver))
+                break
+            if not reverse:
+                next_page(driver)
+            else:
+                prev_page(driver)
+            time.sleep(0.25)
 
         # end parsing
         current_pagenum = get_current_page(driver)
