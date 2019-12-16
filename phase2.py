@@ -5,6 +5,7 @@ import re
 import time
 
 from collections import defaultdict
+from json import JSONDecodeError
 from queue import Queue, Empty, Full
 from threading import Thread
 
@@ -46,6 +47,8 @@ def url_parse(target_url) -> dict:
     }
     session = requests.Session()
     GET_result = session.get(target_url, headers=headers)
+
+    time.sleep(0.5)  # rest between requests
 
     # product detail
     url01 = "http://125.35.6.80:8181/ftban/itownet/fwAction.do?method=getBaInfo"
@@ -115,6 +118,7 @@ def url_parse(target_url) -> dict:
 def read_worker(q):
     offset = 0
     while True:
+        time.sleep(0.5)  # slow down the speed
         with sqlite3.connect('./data.db') as conn:
             cur = conn.cursor()
             cur.execute("SELECT product_name, cert_id, detail_url, header1 FROM ftban LIMIT 150 OFFSET (?);", (offset,))
@@ -144,7 +148,13 @@ def process_worker(in_q, out_q):
             # Event() could be used in here
             logging.error(">>>> input_q empty for 10s")
             break
-        result_dict = url_parse(item_tuple[2])
+        try:
+            time.sleep(0.5)  # slow down
+            result_dict = url_parse(item_tuple[2])
+        except JSONDecodeError as e:
+            logging.error("!!!! JSONDecodeError at item_tuple: "+str(item_tuple))
+            logging.warning(">>>> Put item_tuple back to in_q")
+            in_q.put(item_tuple, block=True)
         logging.debug(">>>> in process_worker(), result_dict: " + str(result_dict))
         if result_dict['cert_id'] == item_tuple[1]:
             out_q.put(result_dict, block=True)
@@ -212,15 +222,15 @@ def save_raw_worker(q):
 def main():
     # TODO db connection pool
     # create queue
-    input_q = Queue(maxsize=5)
-    output_q = Queue(maxsize=5)
-    json_q = Queue(maxsize=3)
+    input_q = Queue(maxsize=20)
+    output_q = Queue(maxsize=10)
+    json_q = Queue(maxsize=2)  # lower priority
     logging.debug(">>>> Queues created")
 
     # create threads
     read_worker_01 = Thread(target=read_worker, args=(input_q,))
     process_worker_list = list()
-    for i in range(10):
+    for i in range(21):  # == input_q maxsize + 1
         process_worker_list.append(Thread(target=process_worker, args=(input_q, output_q)))
     save_worker_01 = Thread(target=save_worker, args=(output_q, json_q))
     save_raw_worker_01 = Thread(target=save_raw_worker, args=(json_q,))
