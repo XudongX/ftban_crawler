@@ -21,7 +21,7 @@ formatter = logging.Formatter(
 fh = logging.FileHandler('phase2_ftban.log',
                          mode='a',
                          encoding='utf-8')
-fh.setLevel(logging.DEBUG)  # 输出到handler的level
+fh.setLevel(logging.INFO)  # 输出到handler的level
 fh.setFormatter(formatter)
 
 # 使用StreamHandler输出到标准输出
@@ -74,6 +74,8 @@ def url_parse(target_url) -> dict:
     for k, v in ingredient_dict.items():
         ingredient_str += (k + '\n(')
         ingredient_str += (', '.join(v) + ')\n')
+    if ingredient_str == "":
+        ingredient_str = "无（注：仅供出口）"
     # print(ingredient_str)
 
     # note1&2
@@ -94,7 +96,7 @@ def url_parse(target_url) -> dict:
 
     session.close()
 
-    return {'product_name': producer_name,
+    return {'product_name': header1,
             'cert_id': cert_id,
             'header1': header1,
             'producer_name': producer_name,
@@ -105,24 +107,32 @@ def url_parse(target_url) -> dict:
             'notes2': notes2,
             'picture_2d': pic_2d_url,
             'picture_3d': pic_3d_url,
-            'json1': response_1.text,
-            'json2': response_attach.text
+            'json_1': response_1.text,
+            'json_2': response_attach.text
             }
 
 
 def read_worker(q):
-    with sqlite3.connect('/Users/xudongsun/Desktop/data_t.db') as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT product_name, cert_id, detail_url, header1 FROM ftban;")
-        while True:
-            result = cur.fetchone()
-            logging.debug(">>>> in read_worker(), cur.fetchone(): " + str(result)[:100])
-            if result is None:
-                # Event() could be used here
-                break
-            if result[3] is None:
-                q.put(result, block=True)
+    offset = 0
+    while True:
+        with sqlite3.connect('./data.db') as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT product_name, cert_id, detail_url, header1 FROM ftban LIMIT 150 OFFSET (?);", (offset,))
+            result = cur.fetchall()
+        if result is None:
+            # an event here
+            break
+        if len(result) == 0:
+            logging.warning(">>>>  in read_worker(), EMPTY TABLE: No New Rows!")
+            break
+        offset += len(result)
+        logging.info(">>>> in read_worker(), Query %d rows, offset = %d", len(result), offset)
+        for row in result:
+            if row[3] is None:  # header1 是否已经存在
+                logging.debug(">>>> in read_worker(), put in input queue: " + str(row)[:100])
+                q.put(row, block=True)
             else:
+                logging.warning(">>>> in read_worker(), header1 existed, row skipped")
                 continue
 
 
@@ -139,56 +149,57 @@ def process_worker(in_q, out_q):
         if result_dict['cert_id'] == item_tuple[1]:
             out_q.put(result_dict, block=True)
         else:
-            print("conflict between ... and ...")
+            logging.error(">>>> Conflict between result and record")
+            logging.error("result_dict['cert_id']: %s", result_dict['cert_id'])
+            logging.error("record: ", item_tuple)
             continue
 
 
 def save_worker(in_q, out_q):
-    with sqlite3.connect('/Users/xudongsun/Desktop/data_t.db') as conn:
-        cur = conn.cursor()
-        while True:
-            result_dict = in_q.get(block=True)
-            cur.execute('''INSERT OR IGNORE INTO ftban(
-                          cert_id, 
-                          header1, 
-                          product_name, 
-                          producer_address,
-                          producer_detail,
-                          ingredient,
-                          notes1,
-                          notes2,
-                          picture_2d,
-                          picture_3d) 
-                          VALUES 
-                          (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (
-                            result_dict['cert_id'],
-                            result_dict['header1'],
-                            result_dict['producer_name'],
-                            result_dict['producer_address'],
-                            result_dict['producer_detail'],
-                            result_dict['ingredient'],
-                            result_dict['notes1'],
-                            result_dict['notes2'],
-                            result_dict['picture_2d'],
-                            result_dict['picture_3d']
-                        ))
+    while True:
+        result_dict = in_q.get(block=True)
+
+        with sqlite3.connect('./data.db') as conn:
+            cur = conn.cursor()
+            cur.execute('''UPDATE ftban SET 
+            header1=?,
+            producer_name=?,
+            producer_address=?,
+            producer_detail=?,
+            ingredient=?,
+            notes1=?,
+            notes2=?,
+            picture_2d=?,
+            picture_3d=?
+            WHERE cert_id=? 
+            ''', (
+                result_dict['header1'],
+                result_dict['producer_name'],
+                result_dict['producer_address'],
+                result_dict['producer_detail'],
+                result_dict['ingredient'],
+                result_dict['notes1'],
+                result_dict['notes2'],
+                result_dict['picture_2d'],
+                result_dict['picture_3d'],
+                result_dict['cert_id'],
+            ))
             conn.commit()
-            logging.debug(">>>> in save_worker(), conn.commit(): " + str(result_dict['product_name']))
-            try:
-                out_q.put(result_dict, block=True)
-            except Full as e:
-                # Event() heare
-                continue
+            logging.info(">>>> in save_worker(), UPDATE TABLE conn.commit(): " + str(result_dict['product_name']))
+        try:
+            out_q.put(result_dict, block=True)
+        except Full as e:
+            # Event() here
+            continue
 
 
 def save_raw_worker(q):
-    with sqlite3.connect('./raw_data.db') as conn:
-        cur = conn.cursor()
-        while True:
-            result_dict = q.get(block=True)
+    while True:
+        result_dict = q.get(block=True)
+        with sqlite3.connect('./raw_data.db') as conn:
+            cur = conn.cursor()
             cur.execute('''INSERT OR IGNORE INTO raw_json
-                    (cert_id, product_name, json_1, json_2) VALUES (?, ?, ?, ?)''',
+                               (cert_id, product_name, json_1, json_2) VALUES (?, ?, ?, ?)''',
                         (result_dict['cert_id'],
                          result_dict['product_name'],
                          result_dict['json_1'],
@@ -199,6 +210,7 @@ def save_raw_worker(q):
 
 
 def main():
+    # TODO db connection pool
     # create queue
     input_q = Queue(maxsize=5)
     output_q = Queue(maxsize=5)

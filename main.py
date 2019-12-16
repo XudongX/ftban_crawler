@@ -178,9 +178,6 @@ def main(db_path='./data.db', reverse=False, start_at_pagenum=None, limitation=1
         logging.info(datetime.now())
         logging.info(driver.title)
 
-        # driver.quit()
-        # input("Wait")
-
         # parse begin at last page and reverse parsing
         if reverse:
             logging.info(">>>> REVERSE! parse order reversed")
@@ -201,7 +198,7 @@ def main(db_path='./data.db', reverse=False, start_at_pagenum=None, limitation=1
         logging.info(">>>> Begin LOOP")
         while True:
             row_and_col = parse_and_return(driver)
-            with sqlite3.connect('./data.db') as conn:
+            with sqlite3.connect(db_path) as conn:
                 db_cursor = conn.cursor()
                 for row in row_and_col:
                     db_cursor.execute("INSERT OR IGNORE INTO ftban(product_name, "
