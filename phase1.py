@@ -1,7 +1,34 @@
 import json
+import logging
 import sqlite3
+import time
+from json import JSONDecodeError
+from queue import Queue, Empty, Full
+from threading import Thread
 
 import requests
+
+logger = logging.getLogger()  # 不加名称设置root logger
+logger.setLevel(logging.DEBUG)  # 设置logger整体记录的level
+formatter = logging.Formatter(
+    '%(asctime)s %(name)s:%(levelname)s:%(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S')
+
+# 使用FileHandler输出到文件
+fh = logging.FileHandler('phase1_ftban.log',
+                         mode='a',
+                         encoding='utf-8')
+fh.setLevel(logging.INFO)  # 输出到handler的level
+fh.setFormatter(formatter)
+
+# 使用StreamHandler输出到标准输出
+sh = logging.StreamHandler()
+sh.setLevel(logging.INFO)
+sh.setFormatter(formatter)
+
+# 添加两个Handler
+logger.addHandler(fh)
+logger.addHandler(sh)
 
 
 def parse_and_return(page_num):
@@ -13,9 +40,12 @@ def parse_and_return(page_num):
     session = requests.Session()
     GET_result = session.get(target_url, headers=headers)
 
+    time.sleep(3)
+
     response = session.post(URL_getBaNewInfoPage,
                             data={'on': 'true', 'conditionType': 1, 'num': page_num},
                             headers=headers)
+
     result_dict = json.loads(response.text)
     item_list = result_dict['list']
     detail_url_fm = 'http://125.35.6.80:8181/ftban/itownet/hzp_ba/fw/pz.jsp?processid={processid}&nid={nid}'
@@ -33,6 +63,8 @@ def parse_and_return(page_num):
         info = (product_name, cert_id, company_name, month_date, detail_url)
         info_list.append(info)
 
+    logging.info(">>>> parse_and_return() finished at page_num:" + str(page_num))
+    time.sleep(3)
     return info_list
 
 
@@ -44,19 +76,50 @@ def save2db(info_list):
                             VALUES (?, ?, ?, ?, ?)''',
                         (info[0], info[1], info[2], info[3], info[4]))
         conn.commit()
+        logging.info(">>>> save2db() committed: " + info_list[0][0])
 
 
-def process_worker():
-    pass
+def process_worker(page_num_q, output_q):
+    while True:
+        try:
+            page_num = page_num_q.get(block=True, timeout=30)
+        except Empty as e:
+            logging.critical(">>>> >>>> page_num_q EMPTY!")
+        try:
+            info_list = parse_and_return(page_num)
+        except JSONDecodeError as e:
+            logging.error(">>>> JSONDecodeError at page_num: " + str(page_num)+". Put it back to page_num_q")
+            page_num_q.put(page_num, block=True, timeout=60)
+        output_q.put(info_list, block=True)
 
 
-def save_workder():
-    pass
+def save_workder(output_q):
+    while True:
+        info_list = output_q.get(block=True)
+        save2db(info_list)
 
 
-def main():
-    pass
+def main(start_at_page_num):
+    page_num_q = Queue(maxsize=15)
+    output_q = Queue(maxsize=10)
+    logging.info(">>>> Queues created")
+
+    process_worker_list = list()
+    for _ in range(16):  # == page_num_q maxsize+1 , at least there is a thread can perform page_num_q.get()
+        process_worker_list.append(Thread(target=process_worker, args=(page_num_q, output_q)))
+    save_workder_01 = Thread(target=save_workder, args=(output_q,))
+    logging.info(">>>> Threads created")
+
+    for worker in process_worker_list:
+        worker.start()
+    save_workder_01.start()
+    logging.info(">>>> worked started")
+
+    for num in range(start_at_page_num, 1000000):
+        page_num_q.put(num, block=True)
+        logging.info(">>>> page_num_q.put(): " + str(num))
+        time.sleep(0.5)
 
 
 if __name__ == '__main__':
-    pass
+    main(17500)
