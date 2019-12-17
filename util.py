@@ -3,6 +3,7 @@ import logging
 import sqlite3
 import time
 import traceback
+from queue import Full
 from threading import Thread
 
 logger = logging.getLogger('util.py')  # 不加名称设置root logger
@@ -11,15 +12,18 @@ logger = logging.getLogger('util.py')  # 不加名称设置root logger
 class ThreadDecorator(Thread):
     """
     ThreadDecorator extends threading.Thread
-    run a function in a new thread, automatically catch Runtime Error in the thread
-    logging the error and put thread back to threads queue if it exist.
+
+    run a function in a new thread, automatically catch Runtime Error in this thread.
+    when runtime error was caught, logging the error,
+    put thread back to threads queue if it exist or rerun the function again in a new thread.
     """
 
-    def __init__(self, target_func, *args, threads_q=None, **kw):
+    def __init__(self, target_func, *args, threads_q=None, sleep=0, **kw):
         """
         :param target_func:
         :param args:
         :param threads_q: threads queue
+        :param sleep: time.sleep() when error occurred
         :param kw:
         """
         Thread.__init__(self)
@@ -27,6 +31,7 @@ class ThreadDecorator(Thread):
         self._q = threads_q
         self._args = args
         self._kw = kw
+        self._sleep = sleep
 
     def run(self) -> None:
         """
@@ -42,15 +47,26 @@ class ThreadDecorator(Thread):
                 logging.error(">>>> Put thread func back to threads queue:")
                 logging.error(self._func.__name__)
                 logging.error(self._args)
-                print(type(self._args))
-                print(type(self._kw))
                 logging.error(self._kw)
-                time.sleep(5)
-                self._q.put(ThreadDecorator(self._func, threads_q=self._q,
-                                            *self._args, **self._kw),
-                            block=True)
+                time.sleep(self._sleep)
+                try:
+                    self._q.put(ThreadDecorator(self._func, threads_q=self._q,
+                                                *self._args, **self._kw),
+                                block=False)
+                    logging.debug(">>>> Successfully put function back into the thread queue")
+                except Full as e:
+                    logging.critical(">>>> thread queue is Full, lost one function above")
             else:
-                logging.critical(">>>> Lost one thread: " + self._func.__name__ + "()")
+                logging.error(">>>> Create new thread:")
+                logging.error(self._func.__name__)
+                logging.error(self._args)
+                logging.error(self._kw)
+                time.sleep(self._sleep)
+                ThreadDecorator(target_func=self._func,
+                                *self._args,
+                                threads_q=None,
+                                **self._kw).start()
+                logging.debug(">>>> Successfully rerun the function again")
 
 
 def csv2db(csv_path, db_path):

@@ -138,17 +138,20 @@ def main(start_at_page_num):
                                   start_at_page_num,
                                   page_num_q,
                                   page_num_q_maxsize,
-                                  threads_q=threads_q
+                                  threads_q=threads_q,
+                                  sleep=5
                                   ))
     for _ in range(6):  # bigger than page_num_q_maxsize , at least there is threads can perform page_num_q.get()
         threads_q.put(ThreadDecorator(process_worker,
                                       page_num_q,
                                       output_q,
-                                      threads_q=threads_q
+                                      threads_q=threads_q,
+                                      sleep=5
                                       ))
     threads_q.put(ThreadDecorator(save_worker,
                                   output_q,
-                                  threads_q=threads_q))
+                                  threads_q=threads_q,
+                                  sleep=5))
     logging.info(">>>> Threads created, starting >>>>")
 
     while True:
