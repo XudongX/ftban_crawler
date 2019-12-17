@@ -1,5 +1,40 @@
 import csv
+import logging
 import sqlite3
+import time
+import traceback
+from threading import Thread
+
+logger = logging.getLogger('util.py')  # 不加名称设置root logger
+
+
+class ThreadDecorator(Thread):
+    def __init__(self, thread_func, *args, threads_q=None, **kw):
+        Thread.__init__(self)
+        self._func = thread_func
+        self._q = threads_q
+        self._args = args
+        self._kw = kw
+
+    def run(self) -> None:
+        try:
+            self._func(*self._args, **self._kw)
+        except RuntimeError as e:
+            logging.critical(">>>> Unknown Runtime Error raised")
+            logging.critical(traceback.format_exc())
+            if self._q is not None:
+                logging.error(">>>> Put thread func back to threads queue:")
+                logging.error(self._func.__name__)
+                logging.error(self._args)
+                print(type(self._args))
+                print(type(self._kw))
+                logging.error(self._kw)
+                time.sleep(5)
+                self._q.put(ThreadDecorator(self._func, threads_q=self._q,
+                                            *self._args, **self._kw),
+                            block=True)
+            else:
+                logging.critical(">>>> Lost one thread: " + self._func.__name__ + "()")
 
 
 def csv2db(csv_path, db_path):

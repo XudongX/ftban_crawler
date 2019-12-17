@@ -2,11 +2,15 @@ import json
 import logging
 import sqlite3
 import time
+import traceback
+from functools import wraps
 from json import JSONDecodeError
 from queue import Queue, Empty, Full
 from threading import Thread
 
 import requests
+
+from util import ThreadDecorator
 
 logger = logging.getLogger()  # 不加名称设置root logger
 logger.setLevel(logging.DEBUG)  # 设置logger整体记录的level
@@ -40,7 +44,7 @@ def parse_and_return(page_num):
     session = requests.Session()
     GET_result = session.get(target_url, headers=headers)
 
-    time.sleep(3)
+    time.sleep(1)
 
     response = session.post(URL_getBaNewInfoPage,
                             data={'on': 'true', 'conditionType': 1, 'num': page_num},
@@ -64,7 +68,7 @@ def parse_and_return(page_num):
         info_list.append(info)
 
     logging.info(">>>> parse_and_return() finished at page_num:" + str(page_num))
-    time.sleep(3)
+    time.sleep(1)
     return info_list
 
 
@@ -79,48 +83,77 @@ def save2db(info_list):
         logging.info(">>>> save2db() committed: " + info_list[0][0])
 
 
+def page_num_generator(start_at_page_num, page_num_q, page_num_q_maxsize):
+    for num in range(start_at_page_num, 1000000):
+        if page_num_q.qsize() > page_num_q_maxsize:
+            logging.warning(">>>> Begin Loop, to many page_num in queue: %d", page_num_q.qsize())
+            while True:
+                time.sleep(5)
+                while page_num_q.qsize() < page_num_q_maxsize:
+                    break
+        page_num_q.put(num, block=False)
+        logging.info(">>>> page_num_q.put(): " + str(num))
+        time.sleep(0.5)
+
+
 def process_worker(page_num_q, output_q):
     while True:
+        time.sleep(1)
         try:
             page_num = page_num_q.get(block=True, timeout=30)
         except Empty as e:
             logging.critical(">>>> >>>> page_num_q EMPTY!")
+            break
         try:
             info_list = parse_and_return(page_num)
         except JSONDecodeError as e:
-            logging.error(">>>> JSONDecodeError at page_num: " + str(page_num)+". Put it back to page_num_q")
+            logging.error(">>>> JSONDecodeError at page_num: " + str(page_num) + ". Put it back to page_num_q")
             page_num_q.put(page_num, block=True, timeout=60)
+            continue
+        except requests.exceptions.ConnectionError as e:
+            logging.error(
+                ">>>> Connection error at page_num: " + str(page_num) + ". Wait 30s.")
+            logging.error(traceback.format_exc())
+            page_num_q.put(page_num, block=True, timeout=60)
+            logging.error(">>>> Have put page_num=%d back to page_num_q", page_num)
             continue
         output_q.put(info_list, block=True)
 
 
-def save_workder(output_q):
+def save_worker(output_q):
     while True:
         info_list = output_q.get(block=True)
         save2db(info_list)
 
 
 def main(start_at_page_num):
-    page_num_q = Queue(maxsize=15)
-    output_q = Queue(maxsize=10)
+    page_num_q = Queue()  # 不设置maxsize，在page-num-generator里控制大小
+    page_num_q_maxsize = 5
+    output_q = Queue(maxsize=5)
     logging.info(">>>> Queues created")
 
-    thread_list = list()
-    for _ in range(16):  # == page_num_q maxsize+1 , at least there is a thread can perform page_num_q.get()
-        thread_list.append(Thread(target=process_worker, args=(page_num_q, output_q)))
-    thread_list.append(Thread(target=save_workder, args=(output_q,)))
-    logging.info(">>>> Threads created")
+    threads_q = Queue()
 
-    for t in thread_list:
-        t.start()
+    threads_q.put(ThreadDecorator(page_num_generator,
+                                  start_at_page_num,
+                                  page_num_q,
+                                  page_num_q_maxsize,
+                                  threads_q=threads_q
+                                  ))
+    for _ in range(6):  # bigger than page_num_q_maxsize , at least there is threads can perform page_num_q.get()
+        threads_q.put(ThreadDecorator(process_worker,
+                                      page_num_q,
+                                      output_q,
+                                      threads_q=threads_q
+                                      ))
+    threads_q.put(ThreadDecorator(save_worker,
+                                  output_q,
+                                  threads_q=threads_q))
+    logging.info(">>>> Threads created, starting >>>>")
 
-    logging.info(">>>> worked started")
-
-    for num in range(start_at_page_num, 1000000):
-        page_num_q.put(num, block=True)
-        logging.info(">>>> page_num_q.put(): " + str(num))
-        time.sleep(0.5)
+    while True:
+        threads_q.get(block=True).start()
 
 
 if __name__ == '__main__':
-    main(17500)
+    main(23100)
