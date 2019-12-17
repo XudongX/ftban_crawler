@@ -89,14 +89,16 @@ def page_num_generator(start_at_page_num, page_num_q, page_num_q_maxsize):
             logging.warning(">>>> Begin Loop, to many page_num in queue: %d", page_num_q.qsize())
             while True:
                 time.sleep(5)
-                while page_num_q.qsize() < page_num_q_maxsize:
+                if page_num_q.qsize() < page_num_q_maxsize:
                     break
+                logging.warning(">>>> Still full in page_num_q: %d", page_num_q.qsize())
         page_num_q.put(num, block=False)
         logging.info(">>>> page_num_q.put(): " + str(num))
         time.sleep(0.5)
 
 
 def process_worker(page_num_q, output_q):
+    wait_time = 1
     while True:
         time.sleep(1)
         try:
@@ -116,6 +118,8 @@ def process_worker(page_num_q, output_q):
             logging.error(traceback.format_exc())
             page_num_q.put(page_num, block=True, timeout=60)
             logging.error(">>>> Have put page_num=%d back to page_num_q", page_num)
+            time.sleep(wait_time)
+            wait_time *= 1.1  # 增加等待时间
             continue
         output_q.put(info_list, block=True)
 
@@ -141,7 +145,7 @@ def main(start_at_page_num):
                                   threads_q=threads_q,
                                   sleep=5
                                   ))
-    for _ in range(6):  # bigger than page_num_q_maxsize , at least there is threads can perform page_num_q.get()
+    for _ in range(12):  # bigger than page_num_q_maxsize , at least there is threads can perform page_num_q.get()
         threads_q.put(ThreadDecorator(process_worker,
                                       page_num_q,
                                       output_q,
