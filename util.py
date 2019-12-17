@@ -43,12 +43,12 @@ class ThreadDecorator(Thread):
         except RuntimeError as e:
             logging.critical(">>>> Unknown Runtime Error arose")
             logging.critical(traceback.format_exc())
+            logging.info(self._func.__name__)
+            logging.info(self._args)
+            logging.info(self._kw)
+            time.sleep(self._sleep)
             if self._q is not None:
-                logging.error(">>>> Put thread func back to threads queue:")
-                logging.info(self._func.__name__)
-                logging.info(self._args)
-                logging.info(self._kw)
-                time.sleep(self._sleep)
+                logging.warning(">>>> Put thread above function back to threads queue")
                 try:
                     self._q.put(ThreadDecorator(self._func, threads_q=self._q,
                                                 *self._args, **self._kw),
@@ -57,11 +57,7 @@ class ThreadDecorator(Thread):
                 except Full as e:
                     logging.critical(">>>> thread queue is Full, lost one function above")
             else:
-                logging.error(">>>> Create new thread:")
-                logging.info(self._func.__name__)
-                logging.info(self._args)
-                logging.info(self._kw)
-                time.sleep(self._sleep)
+                logging.warning(">>>> Create rerun above function in new thread")
                 ThreadDecorator(target_func=self._func,
                                 *self._args,
                                 threads_q=None,
