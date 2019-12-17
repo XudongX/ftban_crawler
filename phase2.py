@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import time
+import traceback
 
 from collections import defaultdict
 from json import JSONDecodeError
@@ -115,32 +116,42 @@ def url_parse(target_url) -> dict:
             }
 
 
-def read_worker(q):
-    offset = 0
+def read_worker(q, input_q_maxsize, offset=0):
+    query_limit = 60
     while True:
         time.sleep(0.5)  # slow down the speed
         with sqlite3.connect('./data.db') as conn:
             cur = conn.cursor()
-            cur.execute("SELECT product_name, cert_id, detail_url, header1 FROM ftban LIMIT 150 OFFSET (?);", (offset,))
+            cur.execute("SELECT product_name, cert_id, detail_url, header1 FROM ftban LIMIT ? OFFSET ?;",
+                        (query_limit, offset))
             result = cur.fetchall()
         if result is None:
             # an event here
             break
         if len(result) == 0:
-            logging.warning(">>>>  in read_worker(), EMPTY TABLE: No New Rows!")
+            logging.error(">>>>  in read_worker(), EMPTY TABLE: No New Rows!")
             break
         offset += len(result)
         logging.info(">>>> in read_worker(), Query %d rows, offset = %d", len(result), offset)
         for row in result:
+            time.sleep(2)
             if row[3] is None:  # header1 是否已经存在
-                logging.debug(">>>> in read_worker(), put in input queue: " + str(row)[:100])
+                if q.qsize() > input_q_maxsize:
+                    while True:
+                        logging.warning(">>>> Queue Full, too many rows in input_q: %d", q.qsize())
+                        time.sleep(10)
+                        if q.qsize() < input_q_maxsize:
+                            break
+                logging.debug(">>>> in read_worker(), put in input queue: " + str(row)[:50])
                 q.put(row, block=True)
             else:
                 logging.warning(">>>> in read_worker(), header1 existed, row skipped")
                 continue
+        logging.info(">>>> read_worker() finished at offset = %d", offset)
 
 
 def process_worker(in_q, out_q):
+    wait_time = 1
     while True:
         try:
             item_tuple = in_q.get(block=True, timeout=10)
@@ -151,19 +162,32 @@ def process_worker(in_q, out_q):
         try:
             time.sleep(0.5)  # slow down
             result_dict = url_parse(item_tuple[2])
+            wait_time = 1
         except JSONDecodeError as e:
-            logging.error("!!!! JSONDecodeError at item_tuple: "+str(item_tuple))
+            logging.error(">>>> JSONDecodeError at item_tuple: " + str(item_tuple))
             logging.warning(">>>> Put item_tuple back to in_q")
             in_q.put(item_tuple, block=True)
+            time.sleep(wait_time)
+            wait_time *= 1.2
             continue
-        logging.debug(">>>> in process_worker(), result_dict: " + str(result_dict))
+        except requests.exceptions.ConnectionError as e:
+            logging.error(
+                ">>>> Connection error at url: %s", item_tuple[2][-10:])
+            logging.error(traceback.format_exc())
+            in_q.put(item_tuple, block=True, timeout=60)
+            logging.error(">>>> Have put back to in_q, url: %s", item_tuple[2][-10:])
+            time.sleep(wait_time)
+            wait_time *= 1.2  # increase wait time
+            continue
+        logging.debug(">>>> in process_worker(), result_dict: " + str(result_dict)[:100])
+
         if result_dict['cert_id'] == item_tuple[1]:
             out_q.put(result_dict, block=True)
         else:
             logging.error(">>>> Conflict between result and record")
             logging.error("result_dict['cert_id']: %s", result_dict['cert_id'])
             logging.error("record: ", item_tuple)
-            continue
+            logging.error(">>>> ")
 
 
 def save_worker(in_q, out_q):
@@ -201,7 +225,8 @@ def save_worker(in_q, out_q):
             out_q.put(result_dict, block=True)
         except Full as e:
             # Event() here
-            continue
+            logging.critical(">>>> out_q is full, thread terminated")
+            return
 
 
 def save_raw_worker(q):
@@ -217,21 +242,22 @@ def save_raw_worker(q):
                          result_dict['json_2'])
                         )
             conn.commit()
-            logging.debug(">>>> in save_raw_worker(), conn.commit(): " + str(result_dict['product_name']))
+        logging.debug(">>>> in save_raw_worker(), conn.commit(): " + str(result_dict['product_name']))
 
 
-def main():
+def main(db_offset):
     # TODO db connection pool
     # create queue
-    input_q = Queue(maxsize=20)
-    output_q = Queue(maxsize=10)
-    json_q = Queue(maxsize=2)  # lower priority
+    input_q = Queue()  # no limitation here, read_worker will limit queue size
+    input_q_maxsize = 15
+    output_q = Queue(maxsize=15)
+    json_q = Queue(maxsize=15)
     logging.debug(">>>> Queues created")
 
     # create threads
     threads_list = list()
-    threads_list.append(Thread(target=read_worker, args=(input_q,)))
-    for i in range(21):  # == input_q maxsize + 1
+    threads_list.append(Thread(target=read_worker, args=(input_q, input_q_maxsize, db_offset)))
+    for i in range(15):  # should be bigger than input_q_maxsize
         threads_list.append(Thread(target=process_worker, args=(input_q, output_q)))
     threads_list.append(Thread(target=save_worker, args=(output_q, json_q)))
     threads_list.append(Thread(target=save_raw_worker, args=(json_q,)))
@@ -244,7 +270,4 @@ def main():
 
 
 if __name__ == '__main__':
-    # url = "http://125.35.6.80:8181/ftban/itownet/hzp_ba/fw/pz.jsp?processid=20191125125809djs0r&nid=20191125125809djs0r"
-    # url_parse(url)
-
-    main()
+    main(db_offset=0)

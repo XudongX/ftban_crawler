@@ -18,16 +18,20 @@ class ThreadDecorator(Thread):
     put thread back to threads queue if it exist or rerun the function again in a new thread.
     """
 
-    def __init__(self, target_func, *args, threads_q=None, sleep=0, **kw):
+    # TODO: try decorator class
+    # TODO:
+    # def __init__(self, group=None, target=None, name=None,
+                 # args=(), kwargs=None, *, daemon=None):
+    def __init__(self, target, *args, threads_q=None, sleep=0, **kw):
         """
-        :param target_func:
+        :param target:
         :param args:
         :param threads_q: threads queue
         :param sleep: time.sleep() when error occurred
         :param kw:
         """
         Thread.__init__(self)
-        self._func = target_func
+        self._func = target
         self._q = threads_q
         self._args = args
         self._kw = kw
@@ -58,7 +62,7 @@ class ThreadDecorator(Thread):
                     logging.critical(">>>> thread queue is Full, lost one function above")
             else:
                 logging.warning(">>>> Create rerun above function in new thread")
-                ThreadDecorator(target_func=self._func,
+                ThreadDecorator(target=self._func,
                                 *self._args,
                                 threads_q=None,
                                 **self._kw).start()

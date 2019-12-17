@@ -1,5 +1,6 @@
 import json
 import logging
+import signal
 import sqlite3
 import time
 import traceback
@@ -80,27 +81,25 @@ def save2db(info_list):
                             VALUES (?, ?, ?, ?, ?)''',
                         (info[0], info[1], info[2], info[3], info[4]))
         conn.commit()
-        logging.info(">>>> save2db() committed: " + info_list[0][0])
+        logging.info(">>>> save2db() committed: " + info_list[0][1])
 
 
 def page_num_generator(start_at_page_num, page_num_q, page_num_q_maxsize):
     for num in range(start_at_page_num, 1000000):
         if page_num_q.qsize() > page_num_q_maxsize:
-            logging.warning(">>>> Begin Loop, to many page_num in queue: %d", page_num_q.qsize())
             while True:
-                time.sleep(5)
+                logging.warning(">>>> Queue Full, too many page_num in page_num_q: %d", page_num_q.qsize())
+                time.sleep(10)
                 if page_num_q.qsize() < page_num_q_maxsize:
                     break
-                logging.warning(">>>> Still full in page_num_q: %d", page_num_q.qsize())
         page_num_q.put(num, block=False)
         logging.info(">>>> page_num_q.put(): " + str(num))
-        time.sleep(0.5)
+        time.sleep(1)
 
 
 def process_worker(page_num_q, output_q):
     wait_time = 1
     while True:
-        time.sleep(1)
         try:
             page_num = page_num_q.get(block=True, timeout=30)
         except Empty as e:
@@ -108,18 +107,22 @@ def process_worker(page_num_q, output_q):
             break
         try:
             info_list = parse_and_return(page_num)
+            wait_time = 1  # parse success, reset wait time
         except JSONDecodeError as e:
             logging.error(">>>> JSONDecodeError at page_num: " + str(page_num) + ". Put it back to page_num_q")
             page_num_q.put(page_num, block=True, timeout=60)
+            logging.info(">>>> process_worker wait_sleep: %d", wait_time)
+            time.sleep(wait_time)
+            wait_time *= 1.2  # increase wait time
             continue
         except requests.exceptions.ConnectionError as e:
             logging.error(
-                ">>>> Connection error at page_num: " + str(page_num) + ". Wait 30s.")
+                ">>>> Connection error at page_num: " + str(page_num))
             logging.error(traceback.format_exc())
             page_num_q.put(page_num, block=True, timeout=60)
             logging.error(">>>> Have put page_num=%d back to page_num_q", page_num)
             time.sleep(wait_time)
-            wait_time *= 1.1  # 增加等待时间
+            wait_time *= 1.2  # increase wait time
             continue
         output_q.put(info_list, block=True)
 
@@ -132,7 +135,7 @@ def save_worker(output_q):
 
 def main(start_at_page_num):
     page_num_q = Queue()  # 不设置maxsize，在page-num-generator里控制大小
-    page_num_q_maxsize = 5
+    page_num_q_maxsize = 12
     output_q = Queue(maxsize=5)
     logging.info(">>>> Queues created")
 
@@ -145,7 +148,7 @@ def main(start_at_page_num):
                                   threads_q=threads_q,
                                   sleep=5
                                   ))
-    for _ in range(12):  # bigger than page_num_q_maxsize , at least there is threads can perform page_num_q.get()
+    for _ in range(15):  # bigger than page_num_q_maxsize , at least there is threads can perform page_num_q.get()
         threads_q.put(ThreadDecorator(process_worker,
                                       page_num_q,
                                       output_q,
@@ -158,8 +161,19 @@ def main(start_at_page_num):
                                   sleep=5))
     logging.info(">>>> Threads created, starting >>>>")
 
+    def sigint_handler(signum, frame):
+        logging.critical(">>>> KeyboardInterrupt: %d", signum)
+        logging.critical(">>>> page_num_q element:")
+        while not page_num_q.full():
+            logging.critical(">>>> >>>> %d", page_num_q.get())
+        print(frame)
+
+    signal.signal(signal.SIGINT, sigint_handler)
+
     while True:
-        threads_q.get(block=True).start()
+        t = threads_q.get(block=True)
+        t.start()
+        logging.info(">>>> Thread started: %s", t)
 
 
 if __name__ == '__main__':
