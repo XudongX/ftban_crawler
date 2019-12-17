@@ -20,7 +20,7 @@ formatter = logging.Formatter(
     datefmt='%Y-%m-%d %H:%M:%S')
 
 # 使用FileHandler输出到文件
-fh = logging.FileHandler('phase2_ftban.log',
+fh = logging.FileHandler('p2.log',
                          mode='a',
                          encoding='utf-8')
 fh.setLevel(logging.INFO)  # 输出到handler的level
@@ -116,14 +116,18 @@ def url_parse(target_url) -> dict:
             }
 
 
-def read_worker(q, input_q_maxsize, offset=0):
-    query_limit = 60
+def read_worker(q, input_q_maxsize):
+    query_limit = 150
+    offset = 0
     while True:
         time.sleep(0.5)  # slow down the speed
         with sqlite3.connect('./data.db') as conn:
             cur = conn.cursor()
-            cur.execute("SELECT product_name, cert_id, detail_url, header1 FROM ftban LIMIT ? OFFSET ?;",
-                        (query_limit, offset))
+            cur.execute(
+                '''SELECT product_name, cert_id, detail_url, header1, id FROM ftban 
+                WHERE header1 is null or header1='' 
+                LIMIT ? OFFSET ?;''',
+                (query_limit, offset))
             result = cur.fetchall()
         if result is None:
             # an event here
@@ -131,11 +135,12 @@ def read_worker(q, input_q_maxsize, offset=0):
         if len(result) == 0:
             logging.error(">>>>  in read_worker(), EMPTY TABLE: No New Rows!")
             break
-        offset += len(result)
         logging.info(">>>> in read_worker(), Query %d rows, offset = %d", len(result), offset)
+        offset += len(result)
+
+        for_counter = 0
         for row in result:
-            time.sleep(2)
-            if row[3] is None:  # header1 是否已经存在
+            if row[3] is None or row[3] is "":  # header1 是否已经存在
                 if q.qsize() > input_q_maxsize:
                     while True:
                         logging.warning(">>>> Queue Full, too many rows in input_q: %d", q.qsize())
@@ -143,21 +148,24 @@ def read_worker(q, input_q_maxsize, offset=0):
                         if q.qsize() < input_q_maxsize:
                             break
                 logging.debug(">>>> in read_worker(), put in input queue: " + str(row)[:50])
+                time.sleep(1)
                 q.put(row, block=True)
+                logging.info(">>>> in read_worker(), for_counter: %d", for_counter)
+                for_counter += 1
             else:
                 logging.warning(">>>> in read_worker(), header1 existed, row skipped")
                 continue
-        logging.info(">>>> read_worker() finished at offset = %d", offset)
+        logging.info(">>>> read_worker() finished at offset = %d, id = %d", offset, row[4])
 
 
 def process_worker(in_q, out_q):
-    wait_time = 1
+    wait_time = 1  # if thread are try to process same item and continuously failed, it will wait for longer time
     while True:
         try:
-            item_tuple = in_q.get(block=True, timeout=10)
+            item_tuple = in_q.get(block=True, timeout=30)
         except Empty as e:
             # Event() could be used in here
-            logging.error(">>>> input_q empty for 10s")
+            logging.critical(">>>> input_q empty for 30s")
             break
         try:
             time.sleep(0.5)  # slow down
@@ -173,20 +181,27 @@ def process_worker(in_q, out_q):
         except requests.exceptions.ConnectionError as e:
             logging.error(
                 ">>>> Connection error at url: %s", item_tuple[2][-10:])
-            logging.error(traceback.format_exc())
             in_q.put(item_tuple, block=True, timeout=60)
             logging.error(">>>> Have put back to in_q, url: %s", item_tuple[2][-10:])
             time.sleep(wait_time)
             wait_time *= 1.2  # increase wait time
             continue
-        logging.debug(">>>> in process_worker(), result_dict: " + str(result_dict)[:100])
+        except TypeError as e:
+            logging.error(
+                ">>>> TypeError when parse url: %s", item_tuple[2][-10:])
+            in_q.put(item_tuple, block=True, timeout=60)
+            logging.error(">>>> Have put back to in_q, url: %s", item_tuple[2][-10:])
+            time.sleep(wait_time)
+            wait_time *= 1.2  # increase wait time
+            continue
 
         if result_dict['cert_id'] == item_tuple[1]:
             out_q.put(result_dict, block=True)
+            logging.debug(">>>> in process_worker(), result_dict: " + str(result_dict)[:100])
         else:
             logging.error(">>>> Conflict between result and record")
             logging.error("result_dict['cert_id']: %s", result_dict['cert_id'])
-            logging.error("record: ", item_tuple)
+            logging.error("record: %d", item_tuple)
             logging.error(">>>> ")
 
 
@@ -220,7 +235,7 @@ def save_worker(in_q, out_q):
                 result_dict['cert_id'],
             ))
             conn.commit()
-            logging.info(">>>> in save_worker(), UPDATE TABLE conn.commit(): " + str(result_dict['product_name']))
+            logging.debug(">>>> in save_worker(), UPDATE TABLE conn.commit(): " + str(result_dict['product_name']))
         try:
             out_q.put(result_dict, block=True)
         except Full as e:
@@ -245,7 +260,7 @@ def save_raw_worker(q):
         logging.debug(">>>> in save_raw_worker(), conn.commit(): " + str(result_dict['product_name']))
 
 
-def main(db_offset):
+def main():
     # TODO db connection pool
     # create queue
     input_q = Queue()  # no limitation here, read_worker will limit queue size
@@ -256,7 +271,7 @@ def main(db_offset):
 
     # create threads
     threads_list = list()
-    threads_list.append(Thread(target=read_worker, args=(input_q, input_q_maxsize, db_offset)))
+    threads_list.append(Thread(target=read_worker, args=(input_q, input_q_maxsize)))
     for i in range(15):  # should be bigger than input_q_maxsize
         threads_list.append(Thread(target=process_worker, args=(input_q, output_q)))
     threads_list.append(Thread(target=save_worker, args=(output_q, json_q)))
@@ -270,4 +285,4 @@ def main(db_offset):
 
 
 if __name__ == '__main__':
-    main(db_offset=0)
+    main()
