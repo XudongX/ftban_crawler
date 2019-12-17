@@ -155,6 +155,7 @@ def process_worker(in_q, out_q):
             logging.error("!!!! JSONDecodeError at item_tuple: "+str(item_tuple))
             logging.warning(">>>> Put item_tuple back to in_q")
             in_q.put(item_tuple, block=True)
+            continue
         logging.debug(">>>> in process_worker(), result_dict: " + str(result_dict))
         if result_dict['cert_id'] == item_tuple[1]:
             out_q.put(result_dict, block=True)
@@ -228,20 +229,17 @@ def main():
     logging.debug(">>>> Queues created")
 
     # create threads
-    read_worker_01 = Thread(target=read_worker, args=(input_q,))
-    process_worker_list = list()
+    threads_list = list()
+    threads_list.append(Thread(target=read_worker, args=(input_q,)))
     for i in range(21):  # == input_q maxsize + 1
-        process_worker_list.append(Thread(target=process_worker, args=(input_q, output_q)))
-    save_worker_01 = Thread(target=save_worker, args=(output_q, json_q))
-    save_raw_worker_01 = Thread(target=save_raw_worker, args=(json_q,))
+        threads_list.append(Thread(target=process_worker, args=(input_q, output_q)))
+    threads_list.append(Thread(target=save_worker, args=(output_q, json_q)))
+    threads_list.append(Thread(target=save_raw_worker, args=(json_q,)))
     logging.debug(">>>> Threads Created")
 
     # start
-    read_worker_01.start()
-    for t in process_worker_list:
+    for t in threads_list:
         t.start()
-    save_worker_01.start()
-    save_raw_worker_01.start()
     logging.info(">>>> >>>> All Threads Started!")
 
 

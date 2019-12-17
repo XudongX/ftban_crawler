@@ -90,6 +90,7 @@ def process_worker(page_num_q, output_q):
         except JSONDecodeError as e:
             logging.error(">>>> JSONDecodeError at page_num: " + str(page_num)+". Put it back to page_num_q")
             page_num_q.put(page_num, block=True, timeout=60)
+            continue
         output_q.put(info_list, block=True)
 
 
@@ -104,15 +105,15 @@ def main(start_at_page_num):
     output_q = Queue(maxsize=10)
     logging.info(">>>> Queues created")
 
-    process_worker_list = list()
+    thread_list = list()
     for _ in range(16):  # == page_num_q maxsize+1 , at least there is a thread can perform page_num_q.get()
-        process_worker_list.append(Thread(target=process_worker, args=(page_num_q, output_q)))
-    save_workder_01 = Thread(target=save_workder, args=(output_q,))
+        thread_list.append(Thread(target=process_worker, args=(page_num_q, output_q)))
+    thread_list.append(Thread(target=save_workder, args=(output_q,)))
     logging.info(">>>> Threads created")
 
-    for worker in process_worker_list:
-        worker.start()
-    save_workder_01.start()
+    for t in thread_list:
+        t.start()
+
     logging.info(">>>> worked started")
 
     for num in range(start_at_page_num, 1000000):
