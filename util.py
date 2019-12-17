@@ -45,9 +45,9 @@ class ThreadDecorator(Thread):
             logging.critical(traceback.format_exc())
             if self._q is not None:
                 logging.error(">>>> Put thread func back to threads queue:")
-                logging.error(self._func.__name__)
-                logging.error(self._args)
-                logging.error(self._kw)
+                logging.info(self._func.__name__)
+                logging.info(self._args)
+                logging.info(self._kw)
                 time.sleep(self._sleep)
                 try:
                     self._q.put(ThreadDecorator(self._func, threads_q=self._q,
@@ -58,9 +58,9 @@ class ThreadDecorator(Thread):
                     logging.critical(">>>> thread queue is Full, lost one function above")
             else:
                 logging.error(">>>> Create new thread:")
-                logging.error(self._func.__name__)
-                logging.error(self._args)
-                logging.error(self._kw)
+                logging.info(self._func.__name__)
+                logging.info(self._args)
+                logging.info(self._kw)
                 time.sleep(self._sleep)
                 ThreadDecorator(target_func=self._func,
                                 *self._args,
