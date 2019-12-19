@@ -120,12 +120,12 @@ def read_worker(q, input_q_maxsize):
     query_limit = 150
     offset = 0
     while True:
-        time.sleep(0.5)  # slow down the speed
+        # time.sleep(0.5)  # slow down the speed
         with sqlite3.connect('./data.db') as conn:
             cur = conn.cursor()
             cur.execute(
                 '''SELECT product_name, cert_id, detail_url, header1, id FROM ftban 
-                WHERE header1 is null or header1='' 
+                WHERE header1 is null and history_record is null
                 LIMIT ? OFFSET ?;''',
                 (query_limit, offset))
             result = cur.fetchall()
@@ -150,7 +150,8 @@ def read_worker(q, input_q_maxsize):
                 logging.debug(">>>> in read_worker(), put in input queue: " + str(row)[:50])
                 time.sleep(1)
                 q.put(row, block=True)
-                logging.info(">>>> in read_worker(), for_counter: %d", for_counter)
+                if for_counter % 30 == 0:
+                    logging.info(">>>> in read_worker(), for_counter: %d", for_counter)
                 for_counter += 1
             else:
                 logging.warning(">>>> in read_worker(), header1 existed, row skipped")
@@ -162,7 +163,7 @@ def process_worker(in_q, out_q):
     wait_time = 1  # if thread are try to process same item and continuously failed, it will wait for longer time
     while True:
         try:
-            item_tuple = in_q.get(block=True, timeout=30)
+            item_tuple = in_q.get(block=True)
         except Empty as e:
             # Event() could be used in here
             logging.critical(">>>> input_q empty for 30s")
@@ -171,6 +172,7 @@ def process_worker(in_q, out_q):
             time.sleep(0.5)  # slow down
             result_dict = url_parse(item_tuple[2])
             wait_time = 1
+            # logging.info(">>>> url_parse finished at finished at id = %d, cert_id=", item_tuple[4], item_tuple[1])
         except JSONDecodeError as e:
             logging.error(">>>> JSONDecodeError at item_tuple: " + str(item_tuple))
             logging.warning(">>>> Put item_tuple back to in_q")
@@ -189,10 +191,13 @@ def process_worker(in_q, out_q):
         except TypeError as e:
             logging.error(
                 ">>>> TypeError when parse url: %s", item_tuple[2][-10:])
-            in_q.put(item_tuple, block=True, timeout=60)
-            logging.error(">>>> Have put back to in_q, url: %s", item_tuple[2][-10:])
-            time.sleep(wait_time)
-            wait_time *= 1.2  # increase wait time
+            logging.error(">>>> Record in db: %s", item_tuple[1])
+            with sqlite3.connect('./data.db') as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    '''UPDATE ftban SET history_record='url_error' WHERE cert_id=?;''',
+                    (item_tuple[1],))
+                conn.commit()
             continue
 
         if result_dict['cert_id'] == item_tuple[1]:
@@ -201,8 +206,7 @@ def process_worker(in_q, out_q):
         else:
             logging.error(">>>> Conflict between result and record")
             logging.error("result_dict['cert_id']: %s", result_dict['cert_id'])
-            logging.error("record: %d", item_tuple)
-            logging.error(">>>> ")
+            logging.error("record: %s", item_tuple)
 
 
 def save_worker(in_q, out_q):
@@ -265,14 +269,14 @@ def main():
     # create queue
     input_q = Queue()  # no limitation here, read_worker will limit queue size
     input_q_maxsize = 15
-    output_q = Queue(maxsize=15)
-    json_q = Queue(maxsize=15)
+    output_q = Queue(maxsize=10)
+    json_q = Queue(maxsize=10)
     logging.debug(">>>> Queues created")
 
     # create threads
     threads_list = list()
     threads_list.append(Thread(target=read_worker, args=(input_q, input_q_maxsize)))
-    for i in range(15):  # should be bigger than input_q_maxsize
+    for i in range(30):  # should be bigger than input_q_maxsize
         threads_list.append(Thread(target=process_worker, args=(input_q, output_q)))
     threads_list.append(Thread(target=save_worker, args=(output_q, json_q)))
     threads_list.append(Thread(target=save_raw_worker, args=(json_q,)))

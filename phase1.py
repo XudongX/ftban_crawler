@@ -20,7 +20,7 @@ formatter = logging.Formatter(
     datefmt='%Y-%m-%d %H:%M:%S')
 
 # 使用FileHandler输出到文件
-fh = logging.FileHandler('phase1_ftban.log',
+fh = logging.FileHandler('p1.log',
                          mode='a',
                          encoding='utf-8')
 fh.setLevel(logging.INFO)  # 输出到handler的level
@@ -93,8 +93,8 @@ def page_num_generator(start_at_page_num, page_num_q, page_num_q_maxsize):
                 if page_num_q.qsize() < page_num_q_maxsize:
                     break
         page_num_q.put(num, block=False)
-        logging.info(">>>> page_num_q.put(): " + str(num))
-        time.sleep(1)
+        logging.debug(">>>> page_num_q.put(): " + str(num))
+        time.sleep(0.5)
 
 
 def process_worker(page_num_q, output_q):
@@ -102,6 +102,7 @@ def process_worker(page_num_q, output_q):
     while True:
         try:
             page_num = page_num_q.get(block=True, timeout=30)
+            logging.info(">>>> in porcess_worker(), page_num_q.gut(): %d", page_num)
         except Empty as e:
             logging.critical(">>>> >>>> page_num_q EMPTY!")
             break
@@ -111,18 +112,17 @@ def process_worker(page_num_q, output_q):
         except JSONDecodeError as e:
             logging.error(">>>> JSONDecodeError at page_num: " + str(page_num) + ". Put it back to page_num_q")
             page_num_q.put(page_num, block=True, timeout=60)
-            logging.info(">>>> process_worker wait_sleep: %d", wait_time)
-            time.sleep(wait_time)
-            wait_time *= 1.2  # increase wait time
+            logging.info(">>>> process_worker wait_time: %d", wait_time)
+            time.sleep(int(wait_time))
+            wait_time *= 1.1  # increase wait time
             continue
         except requests.exceptions.ConnectionError as e:
-            logging.error(
-                ">>>> Connection error at page_num: " + str(page_num))
+            logging.error(">>>> Connection error at page_num: " + str(page_num) + ". Put it back to page_num_q")
             logging.error(traceback.format_exc())
             page_num_q.put(page_num, block=True, timeout=60)
-            logging.error(">>>> Have put page_num=%d back to page_num_q", page_num)
-            time.sleep(wait_time)
-            wait_time *= 1.2  # increase wait time
+            logging.info(">>>> process_worker wait_sleep: %d", wait_time)
+            time.sleep(int(wait_time))
+            wait_time *= 1.1  # increase wait time
             continue
         output_q.put(info_list, block=True)
 
@@ -135,8 +135,8 @@ def save_worker(output_q):
 
 def main(start_at_page_num):
     page_num_q = Queue()  # 不设置maxsize，在page-num-generator里控制大小
-    page_num_q_maxsize = 12
-    output_q = Queue(maxsize=5)
+    page_num_q_maxsize = 10
+    output_q = Queue(maxsize=10)
     logging.info(">>>> Queues created")
 
     threads_q = Queue()
@@ -148,7 +148,7 @@ def main(start_at_page_num):
                                   threads_q=threads_q,
                                   sleep=5
                                   ))
-    for _ in range(15):  # bigger than page_num_q_maxsize , at least there is threads can perform page_num_q.get()
+    for _ in range(20):  # bigger than page_num_q_maxsize , at least there is threads can perform page_num_q.get()
         threads_q.put(ThreadDecorator(process_worker,
                                       page_num_q,
                                       output_q,
