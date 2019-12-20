@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import sqlite3
@@ -16,7 +17,7 @@ def post_process():
     sql_01 = '''UPDATE ftban SET header1='X' WHERE cert_id LIKE '%（已注销）';'''
 
 
-async def select_null_item(q):
+async def select_null_item():
     offset = 0
     while True:
         async with sqlite3.connect('./data.db') as conn:
@@ -25,34 +26,35 @@ async def select_null_item(q):
             results = cur.fetchall()
         offset += len(results)
 
-        async for item in results:
-            # q.put(item)
-            yield item
+        async for db_row in results:
+            yield db_row
 
 
-async def find_product_info(in_q, out_q):
+async def find_product_info(db_row):
     # get session
     target_url = "http://125.35.6.80:8181/ftban/fw.jsp"
     URL_getBaNewInfoPage = "http://125.35.6.80:8181/ftban/itownet/fwAction.do?method=getBaNewInfoPage"
     headers = {
         'user-agent': 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:71.0) Gecko/20100101 Firefox/71.0'
     }
+    async with requests.Session() as session:
+        pass
+
     session = requests.Session()
     GET_result = await session.get(target_url, headers=headers)
-    time.sleep(0.2)
+    await asyncio.sleep(0.5)
 
     # get product list
-    item = in_q.get()
     # item = ('粤G妆网备字2019297935', 123)
-    params_dict = {'on': 'true', 'productName': item[0], 'conditionType': 2}
+    params_dict = {'on': 'true', 'productName': db_row[0], 'conditionType': 2}
     response = await session.post(URL_getBaNewInfoPage, headers=headers, data=params_dict)
     response_dict = await json.loads(response.text)
-    item = response_dict['list'][0]  # precise query above, so need the first item in list
+    product_info = response_dict['list'][0]  # precise query above, so need the first item in list
     # total_count = response_dict['totalCount']
 
     # get product detail
     logging.debug("search result, post response: " + response.text[:100])
-    process_id = item['newProcessid']
+    process_id = product_info['newProcessid']
     URL_getBaInfo = "http://125.35.6.80:8181/ftban/itownet/fwAction.do?method=getBaInfo"
     response_detail = await session.post(URL_getBaInfo, data={'processid': process_id}, headers=headers)  # process{i}d
     detail_dict = await json.loads(response_detail.text)
@@ -71,8 +73,8 @@ async def find_product_info(in_q, out_q):
 
     # ingredient
     ingredient_dict = defaultdict(list)
-    async for item in pfList:
-        ingredient_dict[item['pfname']].append(item['cname'])
+    async for pf in pfList:
+        ingredient_dict[pf['pfname']].append(pf['cname'])
     ingredient_str = ""
     async for k, v in ingredient_dict.items():
         ingredient_str += (k + '\n(')
@@ -113,6 +115,12 @@ async def find_product_info(in_q, out_q):
                   }
     return final_dict
     # out_q.put(final_dict)
+
+
+async def parse_worker(db_row, limitation):
+    async with limitation:
+        product_info_dict = await find_product_info(db_row)
+        return product_info_dict
 
 
 async def save_worker(in_q, out_q):
@@ -171,12 +179,17 @@ async def save_raw_worker(q):
         logging.debug(">>>> in save_raw_worker(), conn.commit(): " + str(result_dict['product_name']))
 
 
-def main():
+async def main():
     # use async and asyncio
     # save_worker(in_q, out_q)
     # save_json_worker(out_q)
+
+    limitation = asyncio.Semaphore(20)
+
+
+
     pass
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
