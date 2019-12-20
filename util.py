@@ -21,7 +21,7 @@ class ThreadDecorator(Thread):
     # TODO: try decorator class
     # TODO:
     # def __init__(self, group=None, target=None, name=None,
-                 # args=(), kwargs=None, *, daemon=None):
+    # args=(), kwargs=None, *, daemon=None):
     def __init__(self, target, *args, threads_q=None, sleep=0, **kw):
         """
         :param target:
@@ -98,3 +98,26 @@ def db2csv(db_path, csv_path):
                                      "detail_url) from ftban"):
             writer.writerow(row)
     conn.close()
+
+
+
+def init_my_logging(log_file_name):
+    logger = logging.getLogger(__name__)  # 不加名称设置root logger
+    logger.setLevel(logging.DEBUG)  # 设置logger整体记录的level
+    formatter = logging.Formatter(
+        '%(asctime)s %(name)s:%(levelname)s:%(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S')
+    # 使用FileHandler输出到文件
+    fh = logging.FileHandler(log_file_name,
+                             mode='a',
+                             encoding='utf-8')
+    fh.setLevel(logging.INFO)  # 输出到handler的level
+    fh.setFormatter(formatter)
+    # 使用StreamHandler输出到标准输出
+    sh = logging.StreamHandler()
+    sh.setLevel(logging.INFO)
+    sh.setFormatter(formatter)
+    # 添加两个Handler
+    logger.addHandler(fh)
+    logger.addHandler(sh)
+

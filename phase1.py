@@ -45,7 +45,7 @@ def parse_and_return(page_num):
     session = requests.Session()
     GET_result = session.get(target_url, headers=headers)
 
-    time.sleep(1)
+    time.sleep(0.2)
 
     response = session.post(URL_getBaNewInfoPage,
                             data={'on': 'true', 'conditionType': 1, 'num': page_num},
@@ -69,7 +69,7 @@ def parse_and_return(page_num):
         info_list.append(info)
 
     logging.info(">>>> parse_and_return() finished at page_num:" + str(page_num))
-    time.sleep(1)
+    # time.sleep(1)
     return info_list
 
 
@@ -81,7 +81,7 @@ def save2db(info_list):
                             VALUES (?, ?, ?, ?, ?)''',
                         (info[0], info[1], info[2], info[3], info[4]))
         conn.commit()
-        logging.info(">>>> save2db() committed: " + info_list[0][1])
+    logging.info(">>>> save2db() committed: " + info_list[0][1])
 
 
 def page_num_generator(start_at_page_num, page_num_q, page_num_q_maxsize):
@@ -102,7 +102,7 @@ def process_worker(page_num_q, output_q):
     while True:
         try:
             page_num = page_num_q.get(block=True, timeout=30)
-            logging.info(">>>> in porcess_worker(), page_num_q.gut(): %d", page_num)
+            # logging.info(">>>> in porcess_worker(), page_num_q.got(): %d", page_num)
         except Empty as e:
             logging.critical(">>>> >>>> page_num_q EMPTY!")
             break
@@ -125,15 +125,18 @@ def process_worker(page_num_q, output_q):
             wait_time *= 1.1  # increase wait time
             continue
         output_q.put(info_list, block=True)
+        logging.info(">>>> output_q.put() OK, process_worker() finished at page_num: %d", page_num)
 
 
 def save_worker(output_q):
     while True:
         info_list = output_q.get(block=True)
+        logging.info(">>>> in save_worker(), output_q.get(): " + info_list[0][1])
         save2db(info_list)
 
 
 def main(start_at_page_num):
+    # use Queue and Thread
     page_num_q = Queue()  # 不设置maxsize，在page-num-generator里控制大小
     page_num_q_maxsize = 10
     output_q = Queue(maxsize=10)
@@ -159,16 +162,20 @@ def main(start_at_page_num):
                                   output_q,
                                   threads_q=threads_q,
                                   sleep=5))
+    threads_q.put(ThreadDecorator(save_worker,
+                                  output_q,
+                                  threads_q=threads_q,
+                                  sleep=5))
     logging.info(">>>> Threads created, starting >>>>")
 
-    def sigint_handler(signum, frame):
-        logging.critical(">>>> KeyboardInterrupt: %d", signum)
-        logging.critical(">>>> page_num_q element:")
-        while not page_num_q.full():
-            logging.critical(">>>> >>>> %d", page_num_q.get())
-        print(frame)
-
-    signal.signal(signal.SIGINT, sigint_handler)
+    # def sigint_handler(signum, frame):
+    #     logging.critical(">>>> KeyboardInterrupt: %d", signum)
+    #     logging.critical(">>>> page_num_q element:")
+    #     while not page_num_q.full():
+    #         logging.critical(">>>> >>>> %d", page_num_q.get())
+    #     print(frame)
+    #
+    # signal.signal(signal.SIGINT, sigint_handler)
 
     while True:
         t = threads_q.get(block=True)
@@ -177,4 +184,4 @@ def main(start_at_page_num):
 
 
 if __name__ == '__main__':
-    main(23100)
+    main(47260)

@@ -265,6 +265,8 @@ def save_raw_worker(q):
 
 
 def main():
+    # use queue and thread
+
     # TODO db connection pool
     # create queue
     input_q = Queue()  # no limitation here, read_worker will limit queue size
