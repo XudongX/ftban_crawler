@@ -56,6 +56,7 @@ def url_parse(target_url) -> dict:
     response_1 = session.post(url01, data={'processid': process_id}, headers=headers)  # process{i}d
     # print(response_1.encoding)
     # print(response_1.status_code)
+    print(response_1.text)
     result_dict = json.loads(response_1.text)
     logging.debug(response_1.text[:100])
 

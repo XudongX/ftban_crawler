@@ -4,6 +4,7 @@ import signal
 import sqlite3
 import time
 import traceback
+from datetime import datetime
 from functools import wraps
 from json import JSONDecodeError
 from queue import Queue, Empty, Full
@@ -100,6 +101,9 @@ def page_num_generator(start_at_page_num, page_num_q, page_num_q_maxsize):
 def process_worker(page_num_q, output_q):
     wait_time = 1
     while True:
+        if datetime.now().hour == 4 and datetime.now().minute == 50:
+            logging.warning(">>>> SLEEP 1 HOUR for server shutdown time")
+            time.sleep(60*60)
         try:
             page_num = page_num_q.get(block=True, timeout=30)
             # logging.info(">>>> in porcess_worker(), page_num_q.got(): %d", page_num)
@@ -184,4 +188,4 @@ def main(start_at_page_num):
 
 
 if __name__ == '__main__':
-    main(47260)
+    main(60020)

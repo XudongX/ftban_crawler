@@ -100,7 +100,6 @@ def db2csv(db_path, csv_path):
     conn.close()
 
 
-
 def init_my_logging(log_file_name):
     logger = logging.getLogger(__name__)  # 不加名称设置root logger
     logger.setLevel(logging.DEBUG)  # 设置logger整体记录的level
@@ -120,4 +119,3 @@ def init_my_logging(log_file_name):
     # 添加两个Handler
     logger.addHandler(fh)
     logger.addHandler(sh)
-
