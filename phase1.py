@@ -103,7 +103,7 @@ def process_worker(page_num_q, output_q):
     while True:
         if datetime.now().hour == 4 and datetime.now().minute == 50:
             logging.warning(">>>> SLEEP 1 HOUR for server shutdown time")
-            time.sleep(60*60)
+            time.sleep(60*60*1.5)
         try:
             page_num = page_num_q.get(block=True, timeout=30)
             # logging.info(">>>> in porcess_worker(), page_num_q.got(): %d", page_num)
@@ -122,6 +122,14 @@ def process_worker(page_num_q, output_q):
             continue
         except requests.exceptions.ConnectionError as e:
             logging.error(">>>> Connection error at page_num: " + str(page_num) + ". Put it back to page_num_q")
+            logging.error(traceback.format_exc())
+            page_num_q.put(page_num, block=True, timeout=60)
+            logging.info(">>>> process_worker wait_sleep: %d", wait_time)
+            time.sleep(int(wait_time))
+            wait_time *= 1.1  # increase wait time
+            continue
+        except TypeError as e:
+            logging.error(">>>> Typeerror at page_num: " + str(page_num) + ". Put it back to page_num_q")
             logging.error(traceback.format_exc())
             page_num_q.put(page_num, block=True, timeout=60)
             logging.info(">>>> process_worker wait_sleep: %d", wait_time)
