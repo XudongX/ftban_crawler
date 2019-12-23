@@ -1,9 +1,10 @@
 import asyncio
 import json
 import logging
+import signal
 import sqlite3
 import time
-from asyncio import Queue
+from asyncio import Queue, QueueFull
 from collections import defaultdict
 from json import JSONDecodeError
 
@@ -38,7 +39,12 @@ def post_process():
     sql_01 = '''UPDATE ftban SET header1='X' WHERE cert_id LIKE '%（已注销）';'''
 
 
-async def select_null_item(in_q):
+async def select_null_item(in_q: asyncio.Queue) -> None:
+    """
+    read db_row from database, put db_row into in_q
+    :param in_q: 
+    :return: None
+    """
     offset = 0
     while True:
         with sqlite3.connect('./data.db') as conn:
@@ -53,7 +59,12 @@ async def select_null_item(in_q):
             await in_q.put(db_row)
 
 
-async def find_product_info(db_row):
+async def find_product_info(db_row: tuple) -> dict:
+    """
+    crawler coroutine, return detailed information.
+    :param db_row:
+    :return:
+    """
     target_url = "http://125.35.6.80:8181/ftban/fw.jsp"
     URL_getBaNewInfoPage = "http://125.35.6.80:8181/ftban/itownet/fwAction.do?method=getBaNewInfoPage"
     headers = {
@@ -69,8 +80,7 @@ async def find_product_info(db_row):
     # print(response.text)
 
     # get session
-    # async with aiohttp.ClientSession() as session:
-    async with httpx.Client(headers=headers) as session:
+    async with httpx.Client() as session:
         await session.get(target_url, headers=headers)
         await asyncio.sleep(0.5)
 
@@ -79,14 +89,12 @@ async def find_product_info(db_row):
         # response = await session.post(URL_getBaNewInfoPage,
         #                     data={'on': 'true', 'conditionType': 1, 'num': 1},
         #                     headers=headers)
-        response = await session.post(URL_getBaNewInfoPage, headers=headers, data=params_dict, timeout=2)
-        print(response.text)
-        # print(response.request_info)
+        response = await session.post(URL_getBaNewInfoPage, headers=headers, data=params_dict, timeout=20)
+        # print(response.text)
+
         response_dict = json.loads(response.text)
         product_info = response_dict['list'][0]  # precise query above, so need the first item in list
 
-        # get product detail
-        logging.debug("search result, post response: " + response.text[:100])
         process_id = product_info['newProcessid']
         URL_getBaInfo = "http://125.35.6.80:8181/ftban/itownet/fwAction.do?method=getBaInfo"
         response_detail = await session.post(URL_getBaInfo, data={'processid': process_id},
@@ -173,7 +181,12 @@ async def process_worker(in_q, out_q):
         await out_q.put(result_dict)
 
 
-async def save_worker(out_q):
+async def save_worker(out_q: asyncio.Queue) -> None:
+    """
+    read detailed info from out_q, save to database
+    :param out_q:
+    :return:
+    """
     while True:
         result_dict = await out_q.get()
         logging.info("in save_worker(), result_dict get: %s", result_dict['cert_id'])
@@ -222,10 +235,26 @@ async def save_worker(out_q):
         logging.debug(">>>> in save_raw_worker(), conn.commit(): " + str(result_dict['cert_id']))
 
 
-async def main():
+async def main() -> None:
+    """
+    main()
+    :return:
+    """
     # use async and asyncio
     in_q = Queue(maxsize=10)
     out_q = Queue(maxsize=10)
+
+    # def sigint_handler(signum, frame):
+    #     logging.critical(">>>> KeyboardInterrupt: %d", signum)
+    #     print("==== Terminating, please wait a minute ====")
+    #     while True:
+    #         try:
+    #             in_q.put_nowait(123213)
+    #             break
+    #         except QueueFull as e:
+    #             continue
+    #
+    # signal.signal(signal.SIGINT, sigint_handler)
 
     corous = [select_null_item(in_q), save_worker(out_q)]
     for _ in range(20):
@@ -235,5 +264,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    # main()
     asyncio.run(main())

@@ -91,6 +91,7 @@ def page_num_generator(start_at_page_num, page_num_q, page_num_q_maxsize):
             while True:
                 logging.warning(">>>> Queue Full, too many page_num in page_num_q: %d", page_num_q.qsize())
                 time.sleep(10)
+                special_sleep(1.5)
                 if page_num_q.qsize() < page_num_q_maxsize:
                     break
         page_num_q.put(num, block=False)
@@ -98,12 +99,16 @@ def page_num_generator(start_at_page_num, page_num_q, page_num_q_maxsize):
         time.sleep(0.5)
 
 
+def special_sleep(hour):
+    if datetime.now().hour == 4 and datetime.now().minute > 49:
+        logging.warning(">>>> SLEEP %d HOUR for server shutdown time", hour)
+        time.sleep(60 * 60 * hour)
+
+
 def process_worker(page_num_q, output_q):
     wait_time = 1
     while True:
-        if datetime.now().hour == 4 and datetime.now().minute == 50:
-            logging.warning(">>>> SLEEP 1 HOUR for server shutdown time")
-            time.sleep(60*60*1.5)
+        special_sleep(1.5)
         try:
             page_num = page_num_q.get(block=True, timeout=30)
             # logging.info(">>>> in porcess_worker(), page_num_q.got(): %d", page_num)
@@ -156,28 +161,20 @@ def main(start_at_page_num):
 
     threads_q = Queue()
 
-    threads_q.put(ThreadDecorator(page_num_generator,
-                                  start_at_page_num,
-                                  page_num_q,
-                                  page_num_q_maxsize,
-                                  threads_q=threads_q,
-                                  sleep=5
-                                  ))
+    threads_q.put(Thread(target=page_num_generator,
+                         args=(start_at_page_num,
+                               page_num_q,
+                               page_num_q_maxsize,
+                               ),
+                         ))
     for _ in range(20):  # bigger than page_num_q_maxsize , at least there is threads can perform page_num_q.get()
-        threads_q.put(ThreadDecorator(process_worker,
-                                      page_num_q,
-                                      output_q,
-                                      threads_q=threads_q,
-                                      sleep=5
-                                      ))
-    threads_q.put(ThreadDecorator(save_worker,
-                                  output_q,
-                                  threads_q=threads_q,
-                                  sleep=5))
-    threads_q.put(ThreadDecorator(save_worker,
-                                  output_q,
-                                  threads_q=threads_q,
-                                  sleep=5))
+        threads_q.put(Thread(target=process_worker,
+                             args=(page_num_q,
+                                   output_q), ))
+    threads_q.put(Thread(target=save_worker,
+                         args=(output_q,)))
+    threads_q.put(Thread(target=save_worker,
+                         args=(output_q,)))
     logging.info(">>>> Threads created, starting >>>>")
 
     # def sigint_handler(signum, frame):
