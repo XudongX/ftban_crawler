@@ -11,6 +11,7 @@ from json import JSONDecodeError
 import aiohttp
 import httpx
 import requests
+import typing
 
 logger = logging.getLogger()  # 不加名称设置root logger
 logger.setLevel(logging.DEBUG)  # 设置logger整体记录的level
@@ -39,7 +40,7 @@ def post_process():
     sql_01 = '''UPDATE ftban SET header1='X' WHERE cert_id LIKE '%（已注销）';'''
 
 
-async def select_null_item(in_q: asyncio.Queue) -> None:
+async def select_null_item(in_q: asyncio.Queue[typing.Tuple[str, str]]) -> None:
     """
     read db_row from database, put db_row into in_q
     :param in_q: 
@@ -59,7 +60,7 @@ async def select_null_item(in_q: asyncio.Queue) -> None:
             await in_q.put(db_row)
 
 
-async def find_product_info(db_row: tuple) -> dict:
+async def find_product_info(db_row: typing.Tuple[str, str]) -> typing.Dict[str, str]:
     """
     crawler coroutine, return detailed information.
     :param db_row:
@@ -158,7 +159,8 @@ async def find_product_info(db_row: tuple) -> dict:
         return final_dict
 
 
-async def process_worker(in_q, out_q):
+async def process_worker(in_q: asyncio.Queue[typing.Tuple[str, str]],
+                         out_q: asyncio.Queue[typing.Tuple[str, str]]) -> None:
     wait_time = 1
     while True:
         db_row = await in_q.get()
@@ -181,7 +183,7 @@ async def process_worker(in_q, out_q):
         await out_q.put(result_dict)
 
 
-async def save_worker(out_q: asyncio.Queue) -> None:
+async def save_worker(out_q: asyncio.Queue[typing.Tuple[str, str]]) -> None:
     """
     read detailed info from out_q, save to database
     :param out_q:
